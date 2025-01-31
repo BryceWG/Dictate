@@ -796,7 +796,9 @@ public class DictateInputMethodService extends InputMethodService {
             speechApiThread.execute(() -> {
                 try {
                     // 设置超时
-                    Unirest.setTimeouts(120000, 120000);
+                    Unirest.config()
+                           .connectTimeout(120000)
+                           .socketTimeout(120000);
                     
                     HttpResponse<String> response = Unirest.post(baseUrl + "v1/audio/transcriptions")
                             .header("Authorization", "Bearer " + apiKey)
