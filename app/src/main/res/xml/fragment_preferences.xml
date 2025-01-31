@@ -133,7 +133,7 @@
             android:defaultValue="openai"
             android:entries="@array/dictate_asr_providers"
             android:entryValues="@array/dictate_asr_providers_values"
-            android:useSimpleSummaryProvider="true"
+            app:useSimpleSummaryProvider="true"
             app:iconSpaceReserved="false"/>
 
         <androidx.preference.ListPreference
@@ -143,7 +143,7 @@
             android:defaultValue="whisper-1"
             android:entries="@array/dictate_asr_models"
             android:entryValues="@array/dictate_asr_models_values"
-            android:useSimpleSummaryProvider="true"
+            app:useSimpleSummaryProvider="true"
             app:iconSpaceReserved="false"/>
 
         <androidx.preference.Preference
