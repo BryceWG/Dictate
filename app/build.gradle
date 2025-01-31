@@ -64,4 +64,8 @@ dependencies {
     // Import the Firebase BoM
     implementation platform(libs.firebase.bom)
     implementation libs.firebase.crashlytics
+
+    // Add Unirest dependency
+    implementation 'com.konghq:unirest-java:3.14.5'
+    implementation 'org.json:json:20231013'  // Required by Unirest
 }
