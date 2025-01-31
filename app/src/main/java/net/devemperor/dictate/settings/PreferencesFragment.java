@@ -10,6 +10,7 @@ import android.text.TextUtils;
 import android.widget.Toast;
 
 import androidx.preference.EditTextPreference;
+import androidx.preference.ListPreference;
 import androidx.preference.MultiSelectListPreference;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
@@ -29,6 +30,7 @@ import org.apache.commons.validator.routines.UrlValidator;
 
 import java.io.File;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -230,6 +232,50 @@ public class PreferencesFragment extends PreferenceFragmentCompat {
                 Toast.makeText(requireContext(), "User-ID: " + sp.getString("net.devemperor.dictate.user_id", "null"), Toast.LENGTH_LONG).show();
                 return true;
             });
+        }
+
+        ListPreference asrProvider = findPreference("net.devemperor.dictate.asr_provider");
+        ListPreference asrModel = findPreference("net.devemperor.dictate.asr_model");
+        if (asrProvider != null && asrModel != null) {
+            asrProvider.setOnPreferenceChangeListener((preference, newValue) -> {
+                String provider = (String) newValue;
+                updateASRModelList(asrModel, provider);
+                return true;
+            });
+            
+            updateASRModelList(asrModel, asrProvider.getValue());
+        }
+    }
+
+    private void updateASRModelList(ListPreference asrModel, String provider) {
+        CharSequence[] entries;
+        CharSequence[] entryValues;
+        
+        if ("siliconflow".equals(provider)) {
+            entries = new CharSequence[]{
+                "SenseVoice Small",
+                "SenseVoice Medium",
+                "SenseVoice Large"
+            };
+            entryValues = new CharSequence[]{
+                "FunAudioLLM/SenseVoiceSmall",
+                "FunAudioLLM/SenseVoiceMedium",
+                "FunAudioLLM/SenseVoiceLarge"
+            };
+        } else {
+            entries = new CharSequence[]{
+                "Whisper-1"
+            };
+            entryValues = new CharSequence[]{
+                "whisper-1"
+            };
+        }
+        
+        asrModel.setEntries(entries);
+        asrModel.setEntryValues(entryValues);
+        
+        if (!Arrays.asList(entryValues).contains(asrModel.getValue())) {
+            asrModel.setValue(entryValues[0].toString());
         }
     }
 }
