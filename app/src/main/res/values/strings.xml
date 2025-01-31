@@ -73,6 +73,20 @@
     <string name="dictate_cancel">Cancel</string>
     <string name="dictate_no_api_key">No API key set</string>
     <string name="dictate_settings_api_key_title">Change OpenAI API key 🔑</string>
+    <string name="dictate_settings_asr_model_title">语音识别模型选择 🎙️</string>
+    <string name="dictate_settings_asr_model_summary">选择用于语音识别的模型</string>
+    <string-array name="dictate_asr_models">
+        <item>OpenAI Whisper-1</item>
+        <item>SiliconFlow SenseVoiceSmall</item>
+        <item>SiliconFlow SenseVoiceMedium</item>
+        <item>SiliconFlow SenseVoiceLarge</item>
+    </string-array>
+    <string-array name="dictate_asr_models_values">
+        <item>whisper-1</item>
+        <item>FunAudioLLM/SenseVoiceSmall</item>
+        <item>FunAudioLLM/SenseVoiceMedium</item>
+        <item>FunAudioLLM/SenseVoiceLarge</item>
+    </string-array>
     <string name="dictate_settings_vibration_title">Haptic feedback 📳</string>
     <string name="dictate_settings_instant_output_title">Instant output ⏱️</string>
     <string name="dictate_settings_instant_output_summary">Disable typing animation when the result is ready</string>
@@ -199,4 +213,14 @@
     <string name="dictate_settings_rewording_history_title">Rewording history ⏪</string>
     <string name="dictate_settings_rewording_history_summary">Show buttons to undo/redo rewording</string>
     <string name="dictate_changelog_18">v2.5.0\n\n- This update brings a cool new feature:\nYou can now undo and redo changes that were made after transcribing or rewording a text. Just click on the two buttons in the rewording section to jump through the history. ⏪\n\n- Some design changes and bug fixes have been made. ✨\n\nAs always, feel free to contact me with questions and ideas via GitHub or the email button below. ☺️\n\n\n</string>
+    <string name="dictate_settings_asr_provider_title">语音识别服务商 🏢</string>
+    <string name="dictate_settings_asr_provider_summary">选择语音识别服务提供商</string>
+    <string-array name="dictate_asr_providers">
+        <item>OpenAI</item>
+        <item>SiliconFlow</item>
+    </string-array>
+    <string-array name="dictate_asr_providers_values">
+        <item>openai</item>
+        <item>siliconflow</item>
+    </string-array>
 </resources>

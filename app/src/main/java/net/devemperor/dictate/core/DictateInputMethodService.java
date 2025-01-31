@@ -82,6 +82,10 @@ import java.util.concurrent.Executors;
 import retrofit2.Retrofit;
 import retrofit2.adapter.rxjava2.RxJava2CallAdapterFactory;
 import retrofit2.converter.jackson.JacksonConverterFactory;
+import com.mashape.unirest.http.HttpResponse;
+import com.mashape.unirest.http.Unirest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 // MAIN CLASS
 public class DictateInputMethodService extends InputMethodService {
@@ -760,104 +764,165 @@ public class DictateInputMethodService extends InputMethodService {
         String customApiHost = sp.getString("net.devemperor.dictate.custom_api_host", getString(R.string.dictate_custom_host_hint));
         String apiKey = sp.getString("net.devemperor.dictate.api_key", "NO_API_KEY");
         String language = currentInputLanguageValue;
+        String asrModel = sp.getString("net.devemperor.dictate.asr_model", "whisper-1");
+        String asrProvider = sp.getString("net.devemperor.dictate.asr_provider", "openai");
+        
+        // 根据不同的服务商使用不同的API端点
+        String baseUrl;
+        if (sp.getBoolean("net.devemperor.dictate.custom_api_host_enabled", false)) {
+            baseUrl = customApiHost;
+        } else {
+            switch (asrProvider) {
+                case "siliconflow":
+                    baseUrl = "https://api.siliconflow.cn/";
+                    break;
+                case "openai":
+                default:
+                    baseUrl = "https://api.openai.com/";
+            }
+        }
+
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl(sp.getBoolean("net.devemperor.dictate.custom_api_host_enabled", false) ? customApiHost : "https://api.openai.com/")
+                .baseUrl(baseUrl)
                 .client(defaultClient(apiKey.replaceAll("[^ -~]", ""), Duration.ofSeconds(120)).newBuilder().build())
                 .addConverterFactory(JacksonConverterFactory.create(defaultObjectMapper()))
                 .addCallAdapterFactory(RxJava2CallAdapterFactory.create())
                 .build();
-        OpenAiService service = new OpenAiService(retrofit.create(OpenAiApi.class));
 
-        speechApiThread = Executors.newSingleThreadExecutor();
-        speechApiThread.execute(() -> {
-            try {
-                CreateTranscriptionRequest request = CreateTranscriptionRequest.builder()
-                        .model("whisper-1")
-                        .responseFormat("verbose_json")
-                        .language(!language.equals("detect") ? language : null)
-                        .prompt(!stylePrompt.isEmpty() ? stylePrompt : null)
-                        .build();
-                TranscriptionResult result = service.createTranscription(request, audioFile);
-                String resultText = result.getText();
-
-                usageDb.edit("whisper-1", result.getDuration().longValue(), 0, 0);
-
-                if (!instantPrompt) {
-                    InputConnection inputConnection = getCurrentInputConnection();
-                    if (inputConnection != null) {
-                        // add previous text to rewording history if it is not the same as the last item
-                        String textBeforeTranscript = inputConnection.getExtractedText(new ExtractedTextRequest(), 0).text.toString();
-                        if (rewordingHistoryIndex == 0 || !textBeforeTranscript.equals(rewordingHistory.get(rewordingHistoryIndex - 1))) {
-                            rewordingHistory.add(textBeforeTranscript);
-                            rewordingHistoryIndex++;
-                        }
-                        // remove all items from rewordingHistory that are after rewordingHistoryIndex
-                        if (rewordingHistoryIndex < rewordingHistory.size()) {
-                            rewordingHistory.subList(rewordingHistoryIndex, rewordingHistory.size()).clear();
-                        }
-
-                        if (sp.getBoolean("net.devemperor.dictate.instant_output", false)) {
-                            inputConnection.commitText(resultText, 1);
-                        } else {
-                            int speed = sp.getInt("net.devemperor.dictate.output_speed", 5);
-                            for (int i = 0; i < resultText.length(); i++) {
-                                char character = resultText.charAt(i);
-                                mainHandler.postDelayed(() -> inputConnection.commitText(String.valueOf(character), 1), (long) (i * (20L / (speed / 5f))));
-                            }
-                        }
-
-                        // add transcribed text to history
-                        rewordingHistory.add(inputConnection.getExtractedText(new ExtractedTextRequest(), 0).text.toString());
-                        rewordingHistoryIndex = rewordingHistory.size();
+        // 根据不同的服务商创建不同的API服务
+        if (asrProvider.equals("siliconflow")) {
+            // 使用Unirest发送请求
+            speechApiThread = Executors.newSingleThreadExecutor();
+            speechApiThread.execute(() -> {
+                try {
+                    // 设置超时
+                    Unirest.setTimeouts(120000, 120000);
+                    
+                    HttpResponse<String> response = Unirest.post(baseUrl + "v1/audio/transcriptions")
+                            .header("Authorization", "Bearer " + apiKey)
+                            .header("Content-Type", "multipart/form-data")
+                            .field("model", asrModel)
+                            .field("file", audioFile, "audio/mpeg")
+                            .field("language", !language.equals("detect") ? language : null)
+                            .asString();
+                    
+                    // 检查响应状态码
+                    if (response.getStatus() != 200) {
+                        throw new RuntimeException("API request failed with status code: " + response.getStatus());
                     }
+                    
+                    // 解析JSON响应
+                    ObjectMapper mapper = new ObjectMapper();
+                    JsonNode root = mapper.readTree(response.getBody());
+                    if (!root.has("text")) {
+                        throw new RuntimeException("Invalid response format: missing 'text' field");
+                    }
+                    String resultText = root.get("text").asText();
+                    handleTranscriptionResult(resultText);
+                } catch (Exception e) {
+                    handleTranscriptionError(e);
+                }
+            });
+        } else {
+            // 使用OpenAI的API
+            OpenAiService service = new OpenAiService(retrofit.create(OpenAiApi.class));
+            speechApiThread = Executors.newSingleThreadExecutor();
+            speechApiThread.execute(() -> {
+                try {
+                    CreateTranscriptionRequest request = CreateTranscriptionRequest.builder()
+                            .model(asrModel)
+                            .responseFormat("verbose_json")
+                            .language(!language.equals("detect") ? language : null)
+                            .prompt(!stylePrompt.isEmpty() ? stylePrompt : null)
+                            .build();
+                    TranscriptionResult result = service.createTranscription(request, audioFile);
+                    handleTranscriptionResult(result.getText());
+                } catch (RuntimeException e) {
+                    handleTranscriptionError(e);
+                }
+            });
+        }
+    }
+
+    private void handleTranscriptionResult(String resultText) {
+        usageDb.edit("whisper-1", 0, 0, 0); // TODO: 根据实际情况记录使用情况
+
+        if (!instantPrompt) {
+            InputConnection inputConnection = getCurrentInputConnection();
+            if (inputConnection != null) {
+                // add previous text to rewording history if it is not the same as the last item
+                String textBeforeTranscript = inputConnection.getExtractedText(new ExtractedTextRequest(), 0).text.toString();
+                if (rewordingHistoryIndex == 0 || !textBeforeTranscript.equals(rewordingHistory.get(rewordingHistoryIndex - 1))) {
+                    rewordingHistory.add(textBeforeTranscript);
+                    rewordingHistoryIndex++;
+                }
+                // remove all items from rewordingHistory that are after rewordingHistoryIndex
+                if (rewordingHistoryIndex < rewordingHistory.size()) {
+                    rewordingHistory.subList(rewordingHistoryIndex, rewordingHistory.size()).clear();
+                }
+
+                if (sp.getBoolean("net.devemperor.dictate.instant_output", false)) {
+                    inputConnection.commitText(resultText, 1);
                 } else {
-                    // continue with ChatGPT API request
-                    instantPrompt = false;
-                    startGPTApiRequest(new PromptModel(-1, Integer.MIN_VALUE, "", resultText, false));
+                    int speed = sp.getInt("net.devemperor.dictate.output_speed", 5);
+                    for (int i = 0; i < resultText.length(); i++) {
+                        char character = resultText.charAt(i);
+                        mainHandler.postDelayed(() -> inputConnection.commitText(String.valueOf(character), 1), (long) (i * (20L / (speed / 5f))));
+                    }
                 }
 
-                if (new File(getCacheDir(), sp.getString("net.devemperor.dictate.last_file_name", "audio.mp3")).exists()
-                        && sp.getBoolean("net.devemperor.dictate.resend_button", false)) {
-                    mainHandler.post(() -> resendButton.setVisibility(View.VISIBLE));
-                }
-
-            } catch (RuntimeException e) {
-                // check if RuntimeException was caused by InterruptedIOException
-                if (!(e.getCause() instanceof InterruptedIOException)) {
-                    sendLogToCrashlytics(e);
-
-                    if (vibrationEnabled) vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE));
-
-                    mainHandler.post(() -> {
-                        resendButton.setVisibility(View.VISIBLE);
-                        if (Objects.requireNonNull(e.getMessage()).contains("SocketTimeoutException")) {
-                            showInfo("timeout");
-                        } else if (e.getMessage().contains("API key")) {
-                            showInfo("invalid_api_key");
-                        } else if (e.getMessage().contains("quota")) {
-                            showInfo("quota_exceeded");
-                        } else if (e.getMessage().contains("content size limit")) {
-                            showInfo("content_size_limit");
-                        } else if (e.getMessage().contains("format")) {
-                            showInfo("format_not_supported");
-                        } else if (sp.getBoolean("net.devemperor.dictate.custom_api_host_enabled", false)) {
-                            if (e.getMessage().contains("ConnectException")) {
-                                showInfo("internet_error");
-                            } else {
-                                showInfo("unknown_host");
-                            }
-                        } else {
-                            showInfo("internet_error");
-                        }
-                    });
-                }
+                // add transcribed text to history
+                rewordingHistory.add(inputConnection.getExtractedText(new ExtractedTextRequest(), 0).text.toString());
+                rewordingHistoryIndex = rewordingHistory.size();
             }
+        } else {
+            // continue with ChatGPT API request
+            instantPrompt = false;
+            startGPTApiRequest(new PromptModel(-1, Integer.MIN_VALUE, "", resultText, false));
+        }
+
+        if (new File(getCacheDir(), sp.getString("net.devemperor.dictate.last_file_name", "audio.mp3")).exists()
+                && sp.getBoolean("net.devemperor.dictate.resend_button", false)) {
+            mainHandler.post(() -> resendButton.setVisibility(View.VISIBLE));
+        }
+    }
+
+    private void handleTranscriptionError(Exception e) {
+        if (!(e instanceof InterruptedIOException)) {
+            sendLogToCrashlytics(e);
+
+            if (vibrationEnabled) vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE));
 
             mainHandler.post(() -> {
-                recordButton.setText(R.string.dictate_record);
-                recordButton.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_baseline_mic_20, 0, R.drawable.ic_baseline_folder_open_20, 0);
-                recordButton.setEnabled(true);
+                resendButton.setVisibility(View.VISIBLE);
+                if (e.getMessage() != null) {
+                    if (e.getMessage().contains("SocketTimeoutException")) {
+                        showInfo("timeout");
+                    } else if (e.getMessage().contains("API key")) {
+                        showInfo("invalid_api_key");
+                    } else if (e.getMessage().contains("quota")) {
+                        showInfo("quota_exceeded");
+                    } else if (e.getMessage().contains("content size limit")) {
+                        showInfo("content_size_limit");
+                    } else if (e.getMessage().contains("format")) {
+                        showInfo("format_not_supported");
+                    } else if (sp.getBoolean("net.devemperor.dictate.custom_api_host_enabled", false)) {
+                        if (e.getMessage().contains("ConnectException")) {
+                            showInfo("internet_error");
+                        } else {
+                            showInfo("unknown_host");
+                        }
+                    } else {
+                        showInfo("internet_error");
+                    }
+                }
             });
+        }
+
+        mainHandler.post(() -> {
+            recordButton.setText(R.string.dictate_record);
+            recordButton.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_baseline_mic_20, 0, R.drawable.ic_baseline_folder_open_20, 0);
+            recordButton.setEnabled(true);
         });
     }
 
